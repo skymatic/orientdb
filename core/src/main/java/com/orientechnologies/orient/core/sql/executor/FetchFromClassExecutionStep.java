@@ -61,20 +61,29 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     for (int i = 0; i < clusterIds.length; i++) {
       int clusterId = clusterIds[i];
       if (clusterId > 0) {
-        FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
+
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx,
+              profilingEnabled);
+          step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_ASC);
+          getSubSteps().add(step);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx,
+              profilingEnabled);
+          step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_DESC);
+          getSubSteps().add(step);
+        } else {
+          FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
+          getSubSteps().add(step);
         }
-        getSubSteps().add(step);
+
       } else {
         //current tx
         FetchTemporaryFromTxStep step = new FetchTemporaryFromTxStep(ctx, className, profilingEnabled);
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_ASC);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_DESC);
         }
         getSubSteps().add(step);
       }

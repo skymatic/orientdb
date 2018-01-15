@@ -77,6 +77,7 @@ import com.orientechnologies.orient.core.storage.impl.local.paginated.*;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.atomicoperations.OAtomicOperation;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.atomicoperations.OAtomicOperationsManager;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.base.ODurablePage;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.*;
 import com.orientechnologies.orient.core.storage.impl.local.statistic.OPerformanceStatisticManager;
 import com.orientechnologies.orient.core.storage.impl.local.statistic.OSessionStoragePerformanceStatistic;
@@ -1361,6 +1362,42 @@ public abstract class OAbstractPaginatedStorage extends OStorageAbstract
   }
 
   @Override
+  public OFetchRecordsStep fetchRecords(final int clusterId, final long pageIndex) {
+    try {
+      checkOpenness();
+
+      final OCluster cluster = getClusterById(clusterId);
+      if (transaction.get() != null) {
+        return doFetchRecords(cluster, pageIndex);
+      }
+
+      stateLock.acquireReadLock();
+      try {
+        checkOpenness();
+        return doFetchRecords(cluster, pageIndex);
+      } finally {
+        stateLock.releaseReadLock();
+      }
+
+    } catch (RuntimeException ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (Error ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (Throwable t) {
+      throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  private OFetchRecordsStep doFetchRecords(OCluster cluster, final long pageIndex) throws IOException {
+    try {
+      final OFetchRecordsStep fetchRecordsStep = cluster.fetchRecords(pageIndex);
+      return fetchRecordsStep;
+    } catch (IOException e) {
+      throw OException.wrapException(new OStorageException("Error during iteration over the records"), e);
+    }
+  }
+
+  @Override
   public OStorageOperationResult<ORawBuffer> readRecordIfVersionIsNotLatest(final ORecordId rid, final String fetchPlan,
       final boolean ignoreCache, final int recordVersion) throws ORecordNotFoundException {
     try {
@@ -2169,9 +2206,9 @@ public abstract class OAbstractPaginatedStorage extends OStorageAbstract
         final OType[] keyTypes = indexDefinition != null ? indexDefinition.getTypes() : null;
         final boolean nullValuesSupport = indexDefinition != null && !indexDefinition.isNullValuesIgnored();
 
-        final OStorageConfigurationImpl.IndexEngineData engineData = new OStorageConfigurationImpl.IndexEngineData(engineName, algorithm,
-            indexType, durableInNonTxMode, version, valueSerializer.getId(), keySerializer.getId(), isAutomatic, keyTypes,
-            nullValuesSupport, keySize, engineProperties);
+        final OStorageConfigurationImpl.IndexEngineData engineData = new OStorageConfigurationImpl.IndexEngineData(engineName,
+            algorithm, indexType, durableInNonTxMode, version, valueSerializer.getId(), keySerializer.getId(), isAutomatic,
+            keyTypes, nullValuesSupport, keySize, engineProperties);
 
         final OIndexEngine engine = OIndexes
             .createIndexEngine(engineName, algorithm, indexType, durableInNonTxMode, this, version, engineProperties, null);
@@ -2244,9 +2281,9 @@ public abstract class OAbstractPaginatedStorage extends OStorageAbstract
 
         indexEngines.add(engine);
 
-        final OStorageConfigurationImpl.IndexEngineData engineData = new OStorageConfigurationImpl.IndexEngineData(engineName, algorithm,
-            indexType, durableInNonTxMode, version, serializerId, keySerializer.getId(), isAutomatic, keyTypes, nullValuesSupport,
-            keySize, engineProperties);
+        final OStorageConfigurationImpl.IndexEngineData engineData = new OStorageConfigurationImpl.IndexEngineData(engineName,
+            algorithm, indexType, durableInNonTxMode, version, serializerId, keySerializer.getId(), isAutomatic, keyTypes,
+            nullValuesSupport, keySize, engineProperties);
 
         getConfiguration().addIndexEngine(engineName, engineData);
 
@@ -4445,13 +4482,14 @@ public abstract class OAbstractPaginatedStorage extends OStorageAbstract
             OStorageClusterConfiguration.STATUS.ONLINE));
 
     createClusterFromConfig(
-        new OStoragePaginatedClusterConfiguration(getConfiguration(), clusters.size(), OMetadataDefault.CLUSTER_INDEX_NAME, null, false,
-            OStoragePaginatedClusterConfiguration.DEFAULT_GROW_FACTOR, OStoragePaginatedClusterConfiguration.DEFAULT_GROW_FACTOR,
-            storageCompression, storageEncryption, encryptionKey, stgConflictStrategy, OStorageClusterConfiguration.STATUS.ONLINE));
+        new OStoragePaginatedClusterConfiguration(getConfiguration(), clusters.size(), OMetadataDefault.CLUSTER_INDEX_NAME, null,
+            false, OStoragePaginatedClusterConfiguration.DEFAULT_GROW_FACTOR,
+            OStoragePaginatedClusterConfiguration.DEFAULT_GROW_FACTOR, storageCompression, storageEncryption, encryptionKey,
+            stgConflictStrategy, OStorageClusterConfiguration.STATUS.ONLINE));
 
     createClusterFromConfig(
-        new OStoragePaginatedClusterConfiguration(getConfiguration(), clusters.size(), OMetadataDefault.CLUSTER_MANUAL_INDEX_NAME, null,
-            false, 1, 1, storageCompression, storageEncryption, encryptionKey, stgConflictStrategy,
+        new OStoragePaginatedClusterConfiguration(getConfiguration(), clusters.size(), OMetadataDefault.CLUSTER_MANUAL_INDEX_NAME,
+            null, false, 1, 1, storageCompression, storageEncryption, encryptionKey, stgConflictStrategy,
             OStorageClusterConfiguration.STATUS.ONLINE));
 
     defaultClusterId = createClusterFromConfig(

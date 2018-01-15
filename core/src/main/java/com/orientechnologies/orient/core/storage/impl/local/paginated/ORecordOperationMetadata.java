@@ -22,6 +22,7 @@ package com.orientechnologies.orient.core.storage.impl.local.paginated;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.atomicoperations.OAtomicOperationMetadata;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OPaginatedCluster;
 
 import java.util.HashSet;
 import java.util.Set;

@@ -24,6 +24,7 @@ import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.impl.local.OAbstractPaginatedStorage;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 
 import java.io.IOException;
 
@@ -142,6 +143,11 @@ public class OOfflineCluster implements OCluster {
     throw OException.wrapException(new ORecordNotFoundException(new ORecordId(id, clusterPosition),
             "Record with rid #" + id + ":" + clusterPosition + " was not found in database"),
         new OOfflineClusterException("Cannot read a record from the offline cluster '" + name + "'"));
+  }
+
+  @Override
+  public OFetchRecordsStep fetchRecords(long pageIndex) throws IOException {
+    throw new OOfflineClusterException("Cannot read a records from the offline cluster '" + name + "'");
   }
 
   @Override

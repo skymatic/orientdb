@@ -60,6 +60,7 @@ import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.impl.local.OAbstractPaginatedStorage;
 import com.orientechnologies.orient.core.storage.impl.local.OFreezableStorageComponent;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.OLocalPaginatedStorage;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OLogSequenceNumber;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransactionInternal;
@@ -210,6 +211,11 @@ public class ODistributedStorage implements OStorage, OFreezableStorageComponent
   @Override
   public boolean isAssigningClusterIds() {
     return true;
+  }
+
+  @Override
+  public OFetchRecordsStep fetchRecords(int clusterId, long pageIndex) {
+    throw new UnsupportedOperationException();
   }
 
   public Object command(final OCommandRequestText iCommand) {

@@ -23,7 +23,6 @@ package com.orientechnologies.orient.core.db.document;
 import com.orientechnologies.common.concur.ONeedRetryException;
 import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.exception.OHighLevelException;
-import com.orientechnologies.common.io.OIOUtils;
 import com.orientechnologies.common.listener.OListenerManger;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.util.OCallable;
@@ -72,13 +71,13 @@ import com.orientechnologies.orient.core.storage.impl.local.OFreezableStorageCom
 import com.orientechnologies.orient.core.storage.impl.local.OMicroTransaction;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.OOfflineClusterException;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.ORecordSerializationContext;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.*;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.Callable;
 
@@ -1249,6 +1248,41 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
     return prefetchRecords;
   }
 
+  @Override
+  public OFetchRecordsDBStep fetchRecords(int clusterId, long pageIndex) {
+    checkOpenness();
+    checkIfActive();
+
+    checkSecurity(ORule.ResourceGeneric.CLUSTER, ORole.PERMISSION_READ, getClusterNameById(clusterId));
+
+    final OStorage storage = getStorage();
+    final OFetchRecordsStep fetchRecordsStep = storage.fetchRecords(clusterId, pageIndex);
+    final List<ORecord> records = new ArrayList<>();
+
+    final long[] clusterPositions = fetchRecordsStep.getClusterPositions();
+
+    if (clusterPositions.length > 0) {
+      final ORawBuffer[] buffers = fetchRecordsStep.getRecords();
+
+      for (int i = 0; i < clusterPositions.length; i++) {
+        final long position = clusterPositions[i];
+        final ORawBuffer buffer = buffers[i];
+
+        final ORecord record = executeReadRecord(new ORecordId(clusterId, position), null, -1, null, false, true, false,
+            OStorage.LOCKING_STRATEGY.NONE, (storage1, rid, fetchPlan, ignoreCache, recordVersion) -> {
+              assert rid.getClusterId() == clusterId;
+              assert rid.getClusterPosition() == position;
+
+              return buffer;
+            });
+
+        records.add(record);
+      }
+    }
+
+    return new OFetchRecordsDBStep(fetchRecordsStep.getNextPageIndex(), records.toArray(new ORecord[0]));
+  }
+
   /**
    * This method is internal, it can be subject to signature change or be removed, do not use.
    *
@@ -2143,7 +2177,6 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
    * transaction will continue to see the record as modified, while others not. If a Pessimistic transaction is running, then an
    * exclusive lock is acquired against the record. Current transaction will continue to see the record as modified, while others
    * cannot access to it since it's locked.
-   * <p>
    * If MVCC is enabled and the version of the document is different by the version stored in the database, then a
    * {@link OConcurrentModificationException} exception is thrown.Before to save the document it must be valid following the
    * constraints declared in the schema if any (can work also in schema-less mode). To validate the document the
@@ -2168,7 +2201,6 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
    * transaction will continue to see the record as modified, while others not. If a Pessimistic transaction is running, then an
    * exclusive lock is acquired against the record. Current transaction will continue to see the record as modified, while others
    * cannot access to it since it's locked.
-   * <p>
    * If MVCC is enabled and the version of the document is different by the version stored in the database, then a
    * {@link OConcurrentModificationException} exception is thrown.Before to save the document it must be valid following the
    * constraints declared in the schema if any (can work also in schema-less mode). To validate the document the
@@ -2198,7 +2230,6 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
    * changed at commit time. The current transaction will continue to see the record as modified, while others not. If a Pessimistic
    * transaction is running, then an exclusive lock is acquired against the record. Current transaction will continue to see the
    * record as modified, while others cannot access to it since it's locked.
-   * <p>
    * If MVCC is enabled and the version of the document is different by the version stored in the database, then a
    * {@link OConcurrentModificationException} exception is thrown. Before to save the document it must be valid following the
    * constraints declared in the schema if any (can work also in schema-less mode). To validate the document the
@@ -2224,7 +2255,6 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
    * changed at commit time. The current transaction will continue to see the record as modified, while others not. If a Pessimistic
    * transaction is running, then an exclusive lock is acquired against the record. Current transaction will continue to see the
    * record as modified, while others cannot access to it since it's locked.
-   * <p>
    * If MVCC is enabled and the version of the document is different by the version stored in the database, then a
    * {@link OConcurrentModificationException} exception is thrown. Before to save the document it must be valid following the
    * constraints declared in the schema if any (can work also in schema-less mode). To validate the document the
@@ -2318,7 +2348,6 @@ public abstract class ODatabaseDocumentAbstract extends OListenerManger<ODatabas
    * transaction will continue to see the record as deleted, while others not. If a Pessimistic transaction is running, then an
    * exclusive lock is acquired against the record. Current transaction will continue to see the record as deleted, while others
    * cannot access to it since it's locked.
-   * <p>
    * If MVCC is enabled and the version of the document is different by the version stored in the database, then a
    * {@link OConcurrentModificationException} exception is thrown.
    *

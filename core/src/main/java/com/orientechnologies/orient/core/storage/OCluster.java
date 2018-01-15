@@ -22,6 +22,7 @@ package com.orientechnologies.orient.core.storage;
 import com.orientechnologies.orient.core.config.OStorageClusterConfiguration;
 import com.orientechnologies.orient.core.conflict.ORecordConflictStrategy;
 import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 
 import java.io.IOException;
 
@@ -53,7 +54,6 @@ public interface OCluster {
 
   /**
    * Truncates the cluster content. All the entries will be removed.
-   *
    */
   void truncate() throws IOException;
 
@@ -90,6 +90,8 @@ public interface OCluster {
 
   ORawBuffer readRecord(long clusterPosition, boolean prefetchRecords) throws IOException;
 
+  OFetchRecordsStep fetchRecords(long pageIndex) throws IOException;
+
   ORawBuffer readRecordIfVersionIsNotLatest(long clusterPosition, int recordVersion) throws IOException, ORecordNotFoundException;
 
   boolean exists();
@@ -99,9 +101,9 @@ public interface OCluster {
    */
   OPhysicalPosition getPhysicalPosition(OPhysicalPosition iPPosition) throws IOException;
 
-  /** Check if a rid is existent and deleted or not existent
-   *
-   *  return true only if delete flag is set.
+  /**
+   * Check if a rid is existent and deleted or not existent
+   * return true only if delete flag is set.
    */
   boolean isDeleted(OPhysicalPosition iPPosition) throws IOException;
 
@@ -148,7 +150,6 @@ public interface OCluster {
 
   /**
    * Hides records content by putting tombstone on the records position but does not delete record itself.
-   *
    * <p>This method is used in case of record content itself is broken and cannot be read or deleted. So it is emergence method.
    *
    * @param position Position of record in cluster

@@ -33,6 +33,7 @@ import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.storage.*;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransactionInternal;
 import org.junit.Assert;
@@ -560,6 +561,11 @@ public class PostponedEngineStartTest {
         @Override
         public void shutdown() {
 
+        }
+
+        @Override
+        public OFetchRecordsStep fetchRecords(int clusterId, long pageIndex) {
+          return new OFetchRecordsStep(-1, new ORawBuffer[0], new long[0]);
         }
       };
     }

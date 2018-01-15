@@ -112,7 +112,7 @@ public class ODeleteEdgeExecutionPlanner {
       if (clusterId < 0) {
         throw new OCommandExecutionException("Cluster not found: " + name);
       }
-      result.chain(new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled));
+      result.chain(new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx, profilingEnabled));
     }
   }
 

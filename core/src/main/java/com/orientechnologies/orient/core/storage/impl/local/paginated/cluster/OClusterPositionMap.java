@@ -18,7 +18,7 @@
  *
  */
 
-package com.orientechnologies.orient.core.storage.impl.local.paginated;
+package com.orientechnologies.orient.core.storage.impl.local.paginated.cluster;
 
 import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.util.OCommonConst;

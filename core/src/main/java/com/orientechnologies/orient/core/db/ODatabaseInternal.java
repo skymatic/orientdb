@@ -92,6 +92,8 @@ public interface ODatabaseInternal<T> extends ODatabase<T> {
   @Deprecated
   <DB extends ODatabase> DB open(final OToken iToken);
 
+  OFetchRecordsDBStep<T> fetchRecords(final int clusterId, final long pageIndex);
+
   OSharedContext getSharedContext();
 
   /**

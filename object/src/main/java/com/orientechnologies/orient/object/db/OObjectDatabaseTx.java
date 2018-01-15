@@ -142,6 +142,11 @@ public class OObjectDatabaseTx extends ODatabaseWrapperAbstract<ODatabaseDocumen
     return (THISDB) this;
   }
 
+  @Override
+  public OFetchRecordsDBStep<Object> fetchRecords(int clusterId, long pageIndex) {
+    throw new UnsupportedOperationException();
+  }
+
   public OSecurityUser getUser() {
     return underlying.getUser();
   }
@@ -337,7 +342,6 @@ public class OObjectDatabaseTx extends ODatabaseWrapperAbstract<ODatabaseDocumen
   /**
    * Method that detaches all fields contained in the document to the given object.
    *
-   * @param <RET>
    * @param iPojo                    :- the object to detach
    * @param returnNonProxiedInstance :- defines if the return object will be a proxied instance or not. If set to TRUE and the
    *                                 object does not contains @Id and @Version fields it could procude data replication
@@ -352,7 +356,6 @@ public class OObjectDatabaseTx extends ODatabaseWrapperAbstract<ODatabaseDocumen
    * Method that detaches all fields contained in the document to the given object and recursively all object tree. This may throw a
    * {@link StackOverflowError} with big objects tree. To avoid it set the stack size with -Xss java option
    *
-   * @param <RET>
    * @param iPojo                    :- the object to detach
    * @param returnNonProxiedInstance :- defines if the return object will be a proxied instance or not. If set to TRUE and the
    *                                 object does not contains @Id and @Version fields it could procude data replication
@@ -457,7 +460,6 @@ public class OObjectDatabaseTx extends ODatabaseWrapperAbstract<ODatabaseDocumen
    * new or not. In case it's new a new ODocument is created and bound to the object, otherwise the ODocument is retrieved and
    * updated. The object is introspected using the Java Reflection to extract the field values. <br>
    * If a multi value (array, collection or map of objects) is passed, then each single object is stored separately.
-   * <p>
    * Before to use the specified cluster a check is made to know if is allowed and figures in the configured and the record is valid
    * following the constraints declared in the schema.
    *
@@ -472,7 +474,6 @@ public class OObjectDatabaseTx extends ODatabaseWrapperAbstract<ODatabaseDocumen
    * it's new a new ODocument is created and bound to the object, otherwise the ODocument is retrieved and updated. The object is
    * introspected using the Java Reflection to extract the field values. <br>
    * If a multi value (array, collection or map of objects) is passed, then each single object is stored separately.
-   * <p>
    * Before to use the specified cluster a check is made to know if is allowed and figures in the configured and the record is valid
    * following the constraints declared in the schema.
    *

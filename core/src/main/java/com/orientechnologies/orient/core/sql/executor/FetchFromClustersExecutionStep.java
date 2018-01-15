@@ -37,14 +37,21 @@ public class FetchFromClustersExecutionStep extends AbstractExecutionStep {
 
     subSteps = new ArrayList<OExecutionStep>();
     sortClusers(clusterIds);
-    for (int i = 0; i < clusterIds.length; i++) {
-      FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterIds[i], ctx, profilingEnabled);
+    for (int clusterId : clusterIds) {
       if (orderByRidAsc) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+        FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx,
+            profilingEnabled);
+        step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_ASC);
+        subSteps.add(step);
       } else if (orderByRidDesc) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+        FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx,
+            profilingEnabled);
+        step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_DESC);
+        subSteps.add(step);
+      } else {
+        FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
+        subSteps.add(step);
       }
-      subSteps.add(step);
     }
   }
 

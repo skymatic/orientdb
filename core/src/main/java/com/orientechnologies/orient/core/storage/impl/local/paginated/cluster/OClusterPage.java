@@ -18,7 +18,7 @@
  *
  */
 
-package com.orientechnologies.orient.core.storage.impl.local.paginated;
+package com.orientechnologies.orient.core.storage.impl.local.paginated.cluster;
 
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.serialization.types.OByteSerializer;
@@ -249,6 +249,10 @@ public class OClusterPage extends ODurablePage {
 
     final int entryPosition = entryPointer & POSITION_MASK;
     return getIntValue(entryPosition + 2 * OIntegerSerializer.INT_SIZE);
+  }
+
+  public int getLastPosition() {
+    return getIntValue(PAGE_INDEXES_LENGTH_OFFSET) - 1;
   }
 
   public int findFirstDeletedRecord(final int position) {

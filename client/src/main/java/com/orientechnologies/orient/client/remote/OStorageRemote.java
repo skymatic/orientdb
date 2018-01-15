@@ -56,6 +56,7 @@ import com.orientechnologies.orient.core.serialization.serializer.record.ORecord
 import com.orientechnologies.orient.core.sql.query.OLiveQuery;
 import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.ORecordSerializationContext;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OBonsaiCollectionPointer;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransactionAbstract;
@@ -353,6 +354,11 @@ public class OStorageRemote extends OStorageAbstract implements OStorageProxy, O
   @Override
   public String getCreatedAtVersion() {
     throw new UnsupportedOperationException("Supported only in embedded storage. Use 'SELECT FROM metadata:storage' instead.");
+  }
+
+  @Override
+  public OFetchRecordsStep fetchRecords(int clusterId, long pageIndex) {
+    throw new UnsupportedOperationException();
   }
 
   public int getSessionId() {

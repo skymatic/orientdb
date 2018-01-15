@@ -1,5 +1,6 @@
-package com.orientechnologies.orient.core.storage.impl.local.paginated;
+package com.orientechnologies.orient.core.storage.impl.local.paginated.cluster;
 
+import com.orientechnologies.orient.core.storage.impl.local.paginated.OClusterPageDebug;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 import java.util.List;

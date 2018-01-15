@@ -4,20 +4,28 @@ import com.orientechnologies.common.concur.OTimeoutException;
 import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.orient.core.command.OCommandContext;
 import com.orientechnologies.orient.core.db.ODatabaseDocumentInternal;
-import com.orientechnologies.orient.core.db.OPaginatedClusterRecordsIterator;
 import com.orientechnologies.orient.core.exception.OCommandExecutionException;
+import com.orientechnologies.orient.core.iterator.ORecordIteratorCluster;
 import com.orientechnologies.orient.core.record.ORecord;
 
 import java.util.Map;
 import java.util.Optional;
 
-public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
-  private int clusterId;
+/**
+ * @author Luigi Dell'Aquila (l.dellaquila-(at)-orientdb.com)
+ */
+public class FetchFromClusterAndOrderByRidExecutionStep extends AbstractExecutionStep {
 
-  private OPaginatedClusterRecordsIterator<ORecord> iterator;
+  public static final Object ORDER_ASC  = "ASC";
+  public static final Object ORDER_DESC = "DESC";
+
+  private int    clusterId;
+  private Object order;
+
+  private ORecordIteratorCluster iterator;
   private long cost = 0;
 
-  public FetchFromClusterExecutionStep(int clusterId, OCommandContext ctx, boolean profilingEnabled) {
+  public FetchFromClusterAndOrderByRidExecutionStep(int clusterId, OCommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.clusterId = clusterId;
   }
@@ -28,7 +36,11 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
     long begin = profilingEnabled ? System.nanoTime() : 0;
     try {
       if (iterator == null) {
-        iterator = new OPaginatedClusterRecordsIterator<>((ODatabaseDocumentInternal) ctx.getDatabase(), clusterId);
+        iterator = new ORecordIteratorCluster((ODatabaseDocumentInternal) ctx.getDatabase(),
+            (ODatabaseDocumentInternal) ctx.getDatabase(), clusterId);
+        if (ORDER_DESC == order) {
+          iterator.last();
+        }
       }
       OResultSet rs = new OResultSet() {
 
@@ -41,9 +53,11 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
             if (nFetched >= nRecords) {
               return false;
             }
-
-            return iterator.hasNext();
-
+            if (ORDER_DESC == order) {
+              return iterator.hasPrevious();
+            } else {
+              return iterator.hasNext();
+            }
           } finally {
             if (profilingEnabled) {
               cost += (System.nanoTime() - begin);
@@ -58,14 +72,19 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
             if (nFetched >= nRecords) {
               throw new IllegalStateException();
             }
-
-            if (!iterator.hasNext()) {
+            if (ORDER_DESC == order && !iterator.hasPrevious()) {
+              throw new IllegalStateException();
+            } else if (ORDER_DESC != order && !iterator.hasNext()) {
               throw new IllegalStateException();
             }
 
-            ORecord record = iterator.next();
+            ORecord record = null;
+            if (ORDER_DESC == order) {
+              record = iterator.previous();
+            } else {
+              record = iterator.next();
+            }
             nFetched++;
-
             OResultInternal result = new OResultInternal();
             result.element = record;
             ctx.setVariable("$current", result);
@@ -84,7 +103,7 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
 
         @Override
         public Optional<OExecutionPlan> getExecutionPlan() {
-          return Optional.empty();
+          return null;
         }
 
         @Override
@@ -114,11 +133,18 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result = OExecutionStepInternal.getIndent(depth, indent) + "+ FETCH FROM CLUSTER " + clusterId;
+    String result =
+        OExecutionStepInternal.getIndent(depth, indent) + "+ FETCH FROM CLUSTER " + clusterId + " " + (ORDER_DESC.equals(order) ?
+            "DESC" :
+            "ASC");
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  public void setOrder(Object order) {
+    this.order = order;
   }
 
   @Override
@@ -130,6 +156,7 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
   public OResult serialize() {
     OResultInternal result = OExecutionStepInternal.basicSerialize(this);
     result.setProperty("clusterId", clusterId);
+    result.setProperty("order", order);
     return result;
   }
 
@@ -138,6 +165,10 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
     try {
       OExecutionStepInternal.basicDeserialize(fromResult, this);
       this.clusterId = fromResult.getProperty("clusterId");
+      Object orderProp = fromResult.getProperty("order");
+      if (orderProp != null) {
+        this.order = ORDER_ASC.equals(fromResult.getProperty("order")) ? ORDER_ASC : ORDER_DESC;
+      }
     } catch (Exception e) {
       throw OException.wrapException(new OCommandExecutionException(""), e);
     }

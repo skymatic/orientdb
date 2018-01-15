@@ -29,6 +29,7 @@ import com.orientechnologies.orient.core.db.record.ORecordOperation;
 import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransactionInternal;
 import com.orientechnologies.orient.core.util.OBackupable;
@@ -84,6 +85,8 @@ public interface OStorage extends OBackupable, OSharedContainer {
   OStorageOperationResult<ORawBuffer> readRecord(ORecordId iRid, String iFetchPlan, boolean iIgnoreCache, boolean prefetchRecords,
       ORecordCallback<ORawBuffer> iCallback);
 
+  OFetchRecordsStep fetchRecords(final int clusterId, final long pageIndex);
+
   OStorageOperationResult<ORawBuffer> readRecordIfVersionIsNotLatest(ORecordId rid, String fetchPlan, boolean ignoreCache,
       int recordVersion) throws ORecordNotFoundException;
 
@@ -127,7 +130,8 @@ public interface OStorage extends OBackupable, OSharedContainer {
 
   /**
    * Add a new cluster into the storage.
-   *  @param iClusterName name of the cluster
+   *
+   * @param iClusterName name of the cluster
    * @param iRequestedId requested id of the cluster
    */
   int addCluster(String iClusterName, int iRequestedId, Object... iParameters);

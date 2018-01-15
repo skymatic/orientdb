@@ -47,7 +47,6 @@ import com.orientechnologies.orient.core.storage.OStorage;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransaction;
 import com.orientechnologies.orient.core.tx.OTransactionInternal;
-import com.orientechnologies.orient.core.tx.OTransactionOptimistic;
 import com.orientechnologies.orient.core.util.OURLConnection;
 import com.orientechnologies.orient.core.util.OURLHelper;
 
@@ -242,6 +241,13 @@ public class ODatabaseDocumentTx implements ODatabaseDocumentInternal {
   public ORecordHook.RESULT callbackHooks(ORecordHook.TYPE type, OIdentifiable id) {
     checkOpenness();
     return internal.callbackHooks(type, id);
+  }
+
+  @Override
+  public OFetchRecordsDBStep<ORecord> fetchRecords(int clusterId, long pageIndex) {
+    checkOpenness();
+
+    return internal.fetchRecords(clusterId, pageIndex);
   }
 
   @Override

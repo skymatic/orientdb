@@ -1950,13 +1950,19 @@ public class OSelectExecutionPlanner {
       if (clusterId == null) {
         throw new OCommandExecutionException("Cluster " + cluster + " does not exist");
       }
-      FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
+
       if (Boolean.TRUE.equals(orderByRidAsc)) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+        FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx, profilingEnabled);
+        step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_ASC);
+        plan.chain(step);
       } else if (Boolean.FALSE.equals(orderByRidAsc)) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+        FetchFromClusterAndOrderByRidExecutionStep step = new FetchFromClusterAndOrderByRidExecutionStep(clusterId, ctx, profilingEnabled);
+        step.setOrder(FetchFromClusterAndOrderByRidExecutionStep.ORDER_DESC);
+        plan.chain(step);
+      } else {
+        FetchFromClusterExecutionStep step = new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
+        plan.chain(step);
       }
-      plan.chain(step);
     } else {
       int[] clusterIds = new int[clusters.size()];
       for (int i = 0; i < clusters.size(); i++) {

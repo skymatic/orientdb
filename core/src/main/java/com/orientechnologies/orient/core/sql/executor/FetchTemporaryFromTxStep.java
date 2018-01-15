@@ -108,7 +108,7 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
               records.add(record);
           }
         }
-        if (order == FetchFromClusterExecutionStep.ORDER_ASC) {
+        if (order == FetchFromClusterAndOrderByRidExecutionStep.ORDER_ASC) {
           Collections.sort(records, new Comparator<ORecord>() {
             @Override
             public int compare(ORecord o1, ORecord o2) {

@@ -20,11 +20,14 @@
 package com.orientechnologies.orient.client.remote;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.UnknownHostException;
 
 import com.orientechnologies.orient.core.config.OStorageClusterConfiguration;
 import com.orientechnologies.orient.core.conflict.ORecordConflictStrategy;
 import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.storage.*;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 
 /**
  * Remote cluster implementation
@@ -37,7 +40,7 @@ public class OClusterRemote implements OCluster {
 
   /*
    * (non-Javadoc)
-   * 
+   *
    * @see com.orientechnologies.orient.core.storage.OCluster#configure(com.orientechnologies.orient.core.storage.OStorage, int,
    * java.lang.String, java.lang.String, int, java.lang.Object[])
    */
@@ -48,7 +51,7 @@ public class OClusterRemote implements OCluster {
 
   /*
    * (non-Javadoc)
-   * 
+   *
    * @see com.orientechnologies.orient.core.storage.OCluster#configure(com.orientechnologies.orient.core.storage.OStorage,
    * com.orientechnologies.orient.core.config.OStorageClusterConfiguration)
    */
@@ -59,7 +62,7 @@ public class OClusterRemote implements OCluster {
 
   /*
    * (non-Javadoc)
-   * 
+   *
    * @see com.orientechnologies.orient.core.storage.OCluster#create(int)
    */
   public void create(int iStartSize) throws IOException {
@@ -68,7 +71,7 @@ public class OClusterRemote implements OCluster {
 
   /*
    * (non-Javadoc)
-   * 
+   *
    * @see com.orientechnologies.orient.core.storage.OCluster#open()
    */
   public void open() throws IOException {
@@ -110,6 +113,11 @@ public class OClusterRemote implements OCluster {
   @Override
   public ORawBuffer readRecord(long clusterPosition, boolean prefetchRecords) throws IOException {
     throw new UnsupportedOperationException("readRecord");
+  }
+
+  @Override
+  public OFetchRecordsStep fetchRecords(long pageIndex) throws IOException {
+    throw new UnsupportedEncodingException();
   }
 
   @Override

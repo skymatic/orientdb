@@ -27,6 +27,7 @@ import com.orientechnologies.orient.core.db.record.ORecordOperation;
 import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.cluster.OFetchRecordsStep;
 import com.orientechnologies.orient.core.storage.ridbag.sbtree.OSBTreeCollectionManager;
 import com.orientechnologies.orient.core.tx.OTransactionInternal;
 import org.junit.Test;
@@ -111,6 +112,11 @@ public class StorageNamingTests {
     public OStorageOperationResult<ORawBuffer> readRecord(ORecordId iRid, String iFetchPlan, boolean iIgnoreCache,
         boolean prefetchRecords, ORecordCallback<ORawBuffer> iCallback) {
       return null;
+    }
+
+    @Override
+    public OFetchRecordsStep fetchRecords(int clusterId, long pageIndex) {
+      return new OFetchRecordsStep(-1, new ORawBuffer[0], new long[0]);
     }
 
     @Override
