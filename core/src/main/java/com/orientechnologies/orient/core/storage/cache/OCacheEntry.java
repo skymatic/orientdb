@@ -67,4 +67,13 @@ public interface OCacheEntry {
 
   OWALChanges getChanges();
 
+  boolean acquireEntry();
+
+  void releaseEntry();
+
+  int getSize();
+
+  boolean isReleased();
+
+  boolean acquirePinnedEntry();
 }
