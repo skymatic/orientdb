@@ -7,7 +7,7 @@ import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.PageKey;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class WTinyLFU {
-  private static final int EDEN_PERCENT         = 20;
+  private static final int EDEN_PERCENT         = 10;
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int                                     size;
