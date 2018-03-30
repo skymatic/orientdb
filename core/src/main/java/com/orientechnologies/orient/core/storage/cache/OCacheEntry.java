@@ -20,6 +20,7 @@
 
 package com.orientechnologies.orient.core.storage.cache;
 
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.eviction.LRUList;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWALChanges;
 
 /**
@@ -80,4 +81,24 @@ public interface OCacheEntry {
   boolean makePinned();
 
   boolean isPinned();
+
+  OCacheEntry getNext();
+
+  OCacheEntry getPrev();
+
+  void setPrev(OCacheEntry prev);
+
+  void setNext(OCacheEntry next);
+
+  void setContainer(LRUList lruList);
+
+  LRUList getContainer();
+
+  boolean isAlive();
+
+  boolean freeze();
+
+  void makeDead();
+
+  boolean isDead();
 }

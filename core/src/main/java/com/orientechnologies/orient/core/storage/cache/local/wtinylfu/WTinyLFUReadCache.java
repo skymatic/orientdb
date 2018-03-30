@@ -19,6 +19,11 @@ import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.readbuffer
 import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.writequeue.MPSCLinkedQueue;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -167,78 +172,6 @@ public final class WTinyLFUReadCache implements OReadCache {
     }
   }
 
-  private void afterRead(OCacheEntry entry) {
-    final boolean bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
-
-    if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
-      tryToDrainBuffers();
-    }
-  }
-
-  private void afterAdd(OCacheEntry entry) {
-    afterWrite(() -> wTinyLFU.onAdd(entry));
-  }
-
-  private void afterPining(OCacheEntry entry) {
-    afterWrite(() -> wTinyLFU.onPinning(entry));
-  }
-
-  private void afterWrite(Runnable command) {
-    writeBuffer.offer(command);
-
-    if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
-      tryToDrainBuffers();
-    }
-  }
-
-  private void checkWriteBuffer() {
-    if (!writeBuffer.isEmpty()) {
-      if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
-        tryToDrainBuffers();
-      }
-    }
-  }
-
-  private void tryToDrainBuffers() {
-    if (drainStatus.get() == DrainStatus.IN_PROGRESS) {
-      return;
-    }
-
-    if (evictionLock.tryLock()) {
-      try {
-        //optimization to avoid to call tryLock if it is not needed
-        drainStatus.lazySet(DrainStatus.IN_PROGRESS);
-        drainBuffers();
-      } finally {
-        //cas operation because we do not want to overwrite REQUIRED status and to avoid false optimization of
-        //drain buffer by IN_PROGRESS status
-        drainStatus.compareAndSet(DrainStatus.IN_PROGRESS, DrainStatus.IDLE);
-        evictionLock.unlock();
-      }
-    }
-  }
-
-  private void drainBuffers() {
-    drainWriteBuffer();
-    drainReadBuffers();
-  }
-
-  private void drainReadBuffers() {
-    readBuffer.drainTo(wTinyLFU::onAccess);
-  }
-
-  private void drainWriteBuffer() {
-    for (int i = 0; i < WRITE_BUFFER_MAX_BATCH; i++) {
-      final Runnable command = writeBuffer.poll();
-
-      if (command == null) {
-        break;
-      }
-
-      command.run();
-    }
-  }
-
   @Override
   public void releaseFromRead(OCacheEntry cacheEntry, OWriteCache writeCache) {
     if (!cacheEntry.isPinned()) {
@@ -334,6 +267,78 @@ public final class WTinyLFUReadCache implements OReadCache {
     return cacheEntry;
   }
 
+  private void afterRead(OCacheEntry entry) {
+    final boolean bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
+
+    if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
+      tryToDrainBuffers();
+    }
+  }
+
+  private void afterAdd(OCacheEntry entry) {
+    afterWrite(() -> wTinyLFU.onAdd(entry));
+  }
+
+  private void afterPining(OCacheEntry entry) {
+    afterWrite(() -> wTinyLFU.onPinning(entry));
+  }
+
+  private void afterWrite(Runnable command) {
+    writeBuffer.offer(command);
+
+    if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
+      tryToDrainBuffers();
+    }
+  }
+
+  private void checkWriteBuffer() {
+    if (!writeBuffer.isEmpty()) {
+      if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
+        tryToDrainBuffers();
+      }
+    }
+  }
+
+  private void tryToDrainBuffers() {
+    if (drainStatus.get() == DrainStatus.IN_PROGRESS) {
+      return;
+    }
+
+    if (evictionLock.tryLock()) {
+      try {
+        //optimization to avoid to call tryLock if it is not needed
+        drainStatus.lazySet(DrainStatus.IN_PROGRESS);
+        drainBuffers();
+      } finally {
+        //cas operation because we do not want to overwrite REQUIRED status and to avoid false optimization of
+        //drain buffer by IN_PROGRESS status
+        drainStatus.compareAndSet(DrainStatus.IN_PROGRESS, DrainStatus.IDLE);
+        evictionLock.unlock();
+      }
+    }
+  }
+
+  private void drainBuffers() {
+    drainWriteBuffer();
+    drainReadBuffers();
+  }
+
+  private void drainReadBuffers() {
+    readBuffer.drainTo(wTinyLFU::onAccess);
+  }
+
+  private void drainWriteBuffer() {
+    for (int i = 0; i < WRITE_BUFFER_MAX_BATCH; i++) {
+      final Runnable command = writeBuffer.poll();
+
+      if (command == null) {
+        break;
+      }
+
+      command.run();
+    }
+  }
+
   @Override
   public long getUsedMemory() {
     return wTinyLFU.getSize() * 4 * 1024;
@@ -344,10 +349,8 @@ public final class WTinyLFUReadCache implements OReadCache {
     evictionLock.lock();
     try {
       for (OCacheEntry entry : data.values()) {
-        if (entry.isReleased()) {
-          final OCachePointer cachePointer = entry.getCachePointer();
-          cachePointer.decrementReadersReferrer();
-          entry.clearCachePointer();
+        if (entry.freeze()) {
+          wTinyLFU.onRemove(entry);
         } else {
           throw new OStorageException(
               "Page with index " + entry.getPageIndex() + " for file id " + entry.getFileId() + " is used and cannot be removed");
@@ -362,15 +365,11 @@ public final class WTinyLFUReadCache implements OReadCache {
 
   private void clearPinnedPages() {
     for (OCacheEntry pinnedEntry : pinnedPages.values()) {
-      if (pinnedEntry.isReleased()) {
-        final OCachePointer cachePointer = pinnedEntry.getCachePointer();
-        cachePointer.decrementReadersReferrer();
-        pinnedEntry.clearCachePointer();
+      final OCachePointer cachePointer = pinnedEntry.getCachePointer();
+      cachePointer.decrementReadersReferrer();
+      pinnedEntry.clearCachePointer();
 
-        pinnedPagesSize.addAndGet(-pinnedEntry.getSize());
-      } else
-        throw new OStorageException("Page with index " + pinnedEntry.getPageIndex() + " for file with id " + pinnedEntry.getFileId()
-            + "cannot be freed because it is used.");
+      pinnedPagesSize.addAndGet(-pinnedEntry.getSize());
     }
 
     pinnedPages.clear();
@@ -387,7 +386,27 @@ public final class WTinyLFUReadCache implements OReadCache {
   private void clearFile(long fileId, int filledUpTo) {
     evictionLock.lock();
     try {
+      for (int pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+        final PageKey pageKey = new PageKey(fileId, pageIndex);
 
+        OCacheEntry cacheEntry = pinnedPages.remove(pageKey);
+
+        if (cacheEntry != null) {
+          OCachePointer cachePointer = cacheEntry.getCachePointer();
+
+          cachePointer.incrementReadersReferrer();
+          cacheEntry.clearCachePointer();
+        } else {
+          cacheEntry = data.remove(pageKey);
+
+          if (cacheEntry.freeze()) {
+            wTinyLFU.onRemove(cacheEntry);
+          } else {
+            throw new OStorageException("Page with index " + cacheEntry.getPageIndex() + " for file id " + cacheEntry.getFileId()
+                + " is used and cannot be removed");
+          }
+        }
+      }
     } finally {
       evictionLock.unlock();
     }
@@ -395,42 +414,41 @@ public final class WTinyLFUReadCache implements OReadCache {
 
   @Override
   public void closeFile(long fileId, boolean flush, OWriteCache writeCache) {
-    evictionLock.lock();
-    try {
+    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    } finally {
-      evictionLock.unlock();
-    }
+    writeCache.close(fileId, flush);
+    clearFile(fileId, filledUpTo);
   }
 
   @Override
   public void deleteFile(long fileId, OWriteCache writeCache) throws IOException {
-    evictionLock.lock();
-    try {
+    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+    clearFile(fileId, filledUpTo);
 
-    } finally {
-      evictionLock.unlock();
-    }
-
+    writeCache.deleteFile(fileId);
   }
 
   @Override
   public void deleteStorage(OWriteCache writeCache) throws IOException {
-    evictionLock.lock();
-    try {
+    final Collection<Long> files = writeCache.files().values();
+    final Map<Long, Integer> filledUpTo = new HashMap<>();
+    for (long fileId : files) {
+      filledUpTo.put(fileId, (int) writeCache.getFilledUpTo(fileId));
+    }
 
-    } finally {
-      evictionLock.unlock();
+    final long[] filesToClear = writeCache.delete();
+    for (long fileId : filesToClear) {
+      clearFile(fileId, filledUpTo.get(fileId));
     }
   }
 
   @Override
   public void closeStorage(OWriteCache writeCache) throws IOException {
-    evictionLock.lock();
-    try {
+    final long[] filesToClear = writeCache.close();
 
-    } finally {
-      evictionLock.unlock();
+    for (long fileId : filesToClear) {
+      final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+      clearFile(fileId, filledUpTo);
     }
   }
 
