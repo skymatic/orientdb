@@ -43,10 +43,10 @@ public final class WTinyLFUReadCache implements OReadCache {
   private final ConcurrentHashMap<PageKey, OCacheEntry> pinnedPages = new ConcurrentHashMap<>();
 
   private final AtomicInteger pinnedPagesSize = new AtomicInteger();
-  private final int percentOfPinnedPages;
+  private final int           percentOfPinnedPages;
 
   private final WTinyLFU wTinyLFU;
-  private final Lock evictionLock = new ReentrantLock();
+  private final Lock     evictionLock = new ReentrantLock();
 
   private final Buffer<OCacheEntry>       readBuffer  = new BoundedBuffer<>();
   private final MPSCLinkedQueue<Runnable> writeBuffer = new MPSCLinkedQueue<>();
@@ -286,16 +286,21 @@ public final class WTinyLFUReadCache implements OReadCache {
   private void afterWrite(Runnable command) {
     writeBuffer.offer(command);
 
-    if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
-      tryToDrainBuffers();
+    if (drainStatus.get() == DrainStatus.IDLE) {
+      drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED);
     }
+
+    tryToDrainBuffers();
   }
 
   private void checkWriteBuffer() {
     if (!writeBuffer.isEmpty()) {
-      if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
-        tryToDrainBuffers();
+
+      if (drainStatus.get() == DrainStatus.IDLE) {
+        drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED);
       }
+
+      tryToDrainBuffers();
     }
   }
 
