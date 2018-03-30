@@ -2,7 +2,7 @@ package com.orientechnologies.orient.core.storage.cache.local.wtinylfu.writequeu
 
 import java.util.concurrent.atomic.AtomicReference;
 
-public class Node<E> {
+public final class Node<E> {
   private final AtomicReference<Node<E>> next = new AtomicReference<>();
   private final E item;
 

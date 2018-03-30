@@ -1,122 +1,101 @@
 package com.orientechnologies.orient.core.storage.cache.local.wtinylfu;
 
 import com.orientechnologies.common.concur.lock.OInterruptedException;
-import com.orientechnologies.common.concur.lock.OReadersWriterSpinLock;
 import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.types.OModifiableBoolean;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.exception.OReadCacheException;
 import com.orientechnologies.orient.core.exception.OStorageException;
-import com.orientechnologies.orient.core.storage.cache.OAbstractWriteCache;
 import com.orientechnologies.orient.core.storage.cache.OCacheEntry;
 import com.orientechnologies.orient.core.storage.cache.OCacheEntryImpl;
 import com.orientechnologies.orient.core.storage.cache.OCachePointer;
 import com.orientechnologies.orient.core.storage.cache.OReadCache;
 import com.orientechnologies.orient.core.storage.cache.OWriteCache;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.eviction.FrequencySketch;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.eviction.WTinyLFU;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.readbuffer.BoundedBuffer;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.readbuffer.Buffer;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.writequeue.MPSCLinkedQueue;
 
 import java.io.IOException;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
-public class WTinyLFUReadCache implements OReadCache {
+public final class WTinyLFUReadCache implements OReadCache {
   /**
    * Maximum amount of times when we will show message that limit of pinned pages was exhausted.
    */
   private static final int MAX_AMOUNT_OF_WARNINGS_PINNED_PAGES = 10;
+  private static final int NCPU                                = Runtime.getRuntime().availableProcessors();
+  private static final int WRITE_BUFFER_MAX_BATCH              = 128 * ceilingPowerOfTwo(NCPU);
 
-  private static final int                                     _4K_PAGE    = 4 * 1024;
-  private final        OReadersWriterSpinLock                  cacheLock   = new OReadersWriterSpinLock();
-  private final        ConcurrentHashMap<PageKey, OCacheEntry> data        = new ConcurrentHashMap<>();
-  private final        ConcurrentHashMap<PageKey, OCacheEntry> pinnedPages = new ConcurrentHashMap<>();
-
-  private final ConcurrentHashMap<Long, OReadersWriterSpinLock> fileLocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<PageKey, OCacheEntry> data;
+  private final ConcurrentHashMap<PageKey, OCacheEntry> pinnedPages = new ConcurrentHashMap<>();
 
   private final AtomicInteger pinnedPagesSize = new AtomicInteger();
-
-  private volatile int cacheSize = 0;
   private final int percentOfPinnedPages;
 
-  private final AtomicInteger maxSize = new AtomicInteger();
+  private final WTinyLFU wTinyLFU;
+  private final Lock evictionLock = new ReentrantLock();
+
+  private final Buffer<OCacheEntry>       readBuffer  = new BoundedBuffer<>();
+  private final MPSCLinkedQueue<Runnable> writeBuffer = new MPSCLinkedQueue<>();
+
+  /**
+   * Status which indicates whether flush of buffers should be performed or may be delayed.
+   */
+  private final AtomicReference<DrainStatus> drainStatus = new AtomicReference<>(DrainStatus.IDLE);
 
   /**
    * Counts how much time we warned user that limit of amount of pinned pages is reached.
    */
   private final AtomicInteger pinnedPagesWarningCounter = new AtomicInteger();
 
-  public WTinyLFUReadCache() {
-    percentOfPinnedPages = 1;
+  public WTinyLFUReadCache(int maxCacheSize, int percentOfPinnedPages) {
+    evictionLock.lock();
+    try {
+      this.data = new ConcurrentHashMap<>(maxCacheSize);
+      this.percentOfPinnedPages = percentOfPinnedPages;
+      wTinyLFU = new WTinyLFU(data, new FrequencySketch<>());
+      wTinyLFU.setMaxSize(maxCacheSize);
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   @Override
   public long addFile(String fileName, OWriteCache writeCache) throws IOException {
-    cacheLock.acquireWriteLock();
-    try {
-      return writeCache.addFile(fileName);
-    } finally {
-      cacheLock.releaseWriteLock();
-    }
+    return writeCache.addFile(fileName);
   }
 
   @Override
   public long addFile(String fileName, long fileId, OWriteCache writeCache) throws IOException {
-    fileId = OAbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-
-    cacheLock.acquireWriteLock();
-    try {
-      return writeCache.addFile(fileName, fileId);
-    } finally {
-      cacheLock.releaseWriteLock();
-    }
+    return writeCache.addFile(fileName, fileId);
   }
 
   @Override
   public OCacheEntry loadForWrite(long fileId, long pageIndex, boolean checkPinnedPages, OWriteCache writeCache, int pageCount,
       boolean verifyChecksums) {
-    cacheLock.acquireReadLock();
-    try {
-      OReadersWriterSpinLock fileLock = getFileLock(fileId);
-      fileLock.acquireReadLock();
-      try {
-        final OCacheEntry cacheEntry = doLoad(fileId, (int) pageIndex, checkPinnedPages, writeCache, false, verifyChecksums);
+    final OCacheEntry cacheEntry = doLoad(fileId, (int) pageIndex, checkPinnedPages, writeCache, false, verifyChecksums);
 
-        if (cacheEntry != null) {
-          cacheEntry.acquireExclusiveLock();
-          writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer());
-        }
-
-        return cacheEntry;
-      } finally {
-        fileLock.releaseReadLock();
-      }
-    } finally {
-      cacheLock.releaseReadLock();
+    if (cacheEntry != null) {
+      cacheEntry.acquireExclusiveLock();
+      writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer());
     }
+
+    return cacheEntry;
   }
 
   @Override
   public OCacheEntry loadForRead(long fileId, long pageIndex, boolean checkPinnedPages, OWriteCache writeCache, int pageCount,
       boolean verifyChecksums) {
-    cacheLock.acquireReadLock();
-    try {
-      OReadersWriterSpinLock fileLock = getFileLock(fileId);
-      fileLock.acquireReadLock();
-      try {
-        final OCacheEntry cacheEntry = doLoad(fileId, (int) pageIndex, checkPinnedPages, writeCache, false, verifyChecksums);
-
-        if (cacheEntry != null) {
-          cacheEntry.acquireSharedLock();
-        }
-
-        return cacheEntry;
-      } finally {
-        fileLock.releaseReadLock();
-      }
-    } finally {
-      cacheLock.releaseReadLock();
-    }
+    final OCacheEntry cacheEntry = doLoad(fileId, (int) pageIndex, checkPinnedPages, writeCache, false, verifyChecksums);
+    return cacheEntry;
   }
 
   private OCacheEntry doLoad(long fileId, int pageIndex, boolean checkPinnedPages, OWriteCache writeCache, boolean addNewPages,
@@ -124,6 +103,8 @@ public class WTinyLFUReadCache implements OReadCache {
 
     final PageKey pageKey = new PageKey(fileId, pageIndex);
     while (true) {
+      checkWriteBuffer();
+
       OCacheEntry cacheEntry = null;
 
       if (checkPinnedPages) {
@@ -131,14 +112,14 @@ public class WTinyLFUReadCache implements OReadCache {
       }
 
       if (cacheEntry != null) {
-        if (cacheEntry.acquirePinnedEntry()) {
+        if (cacheEntry.makePinned()) {
           return cacheEntry;
         }
 
         continue;
       }
 
-      cacheEntry = data.get(new PageKey(fileId, pageIndex));
+      cacheEntry = data.get(pageKey);
 
       if (cacheEntry != null) {
         if (cacheEntry.acquireEntry()) {
@@ -146,7 +127,7 @@ public class WTinyLFUReadCache implements OReadCache {
           return cacheEntry;
         }
       } else {
-        final OModifiableBoolean read = new OModifiableBoolean();
+        final boolean[] read = new boolean[1];
 
         cacheEntry = data.compute(pageKey, (page, entry) -> {
           if (entry == null) {
@@ -158,13 +139,13 @@ public class WTinyLFUReadCache implements OReadCache {
                 return null;
               }
 
-              return new OCacheEntryImpl(page.fileId, page.pageIndex, pointers[1], false);
+              return new OCacheEntryImpl(page.getFileId(), page.getPageIndex(), pointers[1], false);
             } catch (IOException e) {
               throw OException
                   .wrapException(new OStorageException("Error during loading of page " + pageIndex + " for file " + fileId), e);
             }
           } else {
-            read.setValue(true);
+            read[0] = true;
             return entry;
           }
         });
@@ -174,7 +155,7 @@ public class WTinyLFUReadCache implements OReadCache {
         }
 
         if (cacheEntry.acquireEntry()) {
-          if (read.getValue()) {
+          if (read[0]) {
             afterRead(cacheEntry);
           } else {
             afterAdd(cacheEntry);
@@ -186,94 +167,136 @@ public class WTinyLFUReadCache implements OReadCache {
     }
   }
 
-  private void afterAdd(OCacheEntry entry) {
-
-  }
-
   private void afterRead(OCacheEntry entry) {
+    final boolean bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
 
+    if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
+      tryToDrainBuffers();
+    }
   }
 
-  private void afterRemove(OCacheEntry entry) {
-
+  private void afterAdd(OCacheEntry entry) {
+    afterWrite(() -> wTinyLFU.onAdd(entry));
   }
 
-  private void scheduleDrainBuffers() {
-
+  private void afterPining(OCacheEntry entry) {
+    afterWrite(() -> wTinyLFU.onPinning(entry));
   }
 
-  private OReadersWriterSpinLock getFileLock(long fileId) {
-    return fileLocks.computeIfAbsent(fileId, (key) -> new OReadersWriterSpinLock());
+  private void afterWrite(Runnable command) {
+    writeBuffer.offer(command);
+
+    if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
+      tryToDrainBuffers();
+    }
+  }
+
+  private void checkWriteBuffer() {
+    if (!writeBuffer.isEmpty()) {
+      if (drainStatus.get() == DrainStatus.IDLE && drainStatus.compareAndSet(DrainStatus.IDLE, DrainStatus.REQUIRED)) {
+        tryToDrainBuffers();
+      }
+    }
+  }
+
+  private void tryToDrainBuffers() {
+    if (drainStatus.get() == DrainStatus.IN_PROGRESS) {
+      return;
+    }
+
+    if (evictionLock.tryLock()) {
+      try {
+        //optimization to avoid to call tryLock if it is not needed
+        drainStatus.lazySet(DrainStatus.IN_PROGRESS);
+        drainBuffers();
+      } finally {
+        //cas operation because we do not want to overwrite REQUIRED status and to avoid false optimization of
+        //drain buffer by IN_PROGRESS status
+        drainStatus.compareAndSet(DrainStatus.IN_PROGRESS, DrainStatus.IDLE);
+        evictionLock.unlock();
+      }
+    }
+  }
+
+  private void drainBuffers() {
+    drainWriteBuffer();
+    drainReadBuffers();
+  }
+
+  private void drainReadBuffers() {
+    readBuffer.drainTo(wTinyLFU::onAccess);
+  }
+
+  private void drainWriteBuffer() {
+    for (int i = 0; i < WRITE_BUFFER_MAX_BATCH; i++) {
+      final Runnable command = writeBuffer.poll();
+
+      if (command == null) {
+        break;
+      }
+
+      command.run();
+    }
   }
 
   @Override
   public void releaseFromRead(OCacheEntry cacheEntry, OWriteCache writeCache) {
-    cacheEntry.releaseSharedLock();
-    cacheEntry.releaseEntry();
+    if (!cacheEntry.isPinned()) {
+      cacheEntry.releaseEntry();
+    }
   }
 
   @Override
   public void releaseFromWrite(OCacheEntry cacheEntry, OWriteCache writeCache) {
-    cacheLock.acquireReadLock();
-    try {
-      OReadersWriterSpinLock fileLock = fileLocks.get(cacheEntry.getFileId());
-      fileLock.acquireReadLock();
-      try {
-        final CountDownLatch[] latch = new CountDownLatch[1];
+    final CountDownLatch[] latch = new CountDownLatch[1];
 
-        final OCachePointer cachePointer = cacheEntry.getCachePointer();
-        assert cachePointer != null;
+    final OCachePointer cachePointer = cacheEntry.getCachePointer();
+    assert cachePointer != null;
 
-        final PageKey pageKey = new PageKey(cacheEntry.getFileId(), (int) cacheEntry.getPageIndex());
-        if (cacheEntry.isDirty()) {
-          data.compute(pageKey, (page, entry) -> {
+    final PageKey pageKey = new PageKey(cacheEntry.getFileId(), (int) cacheEntry.getPageIndex());
+    if (cacheEntry.isDirty()) {
+      data.compute(pageKey, (page, entry) -> {
+        latch[0] = writeCache.store(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
+        return entry;//may be absent if page in pinned pages, in such case we use map as virtual lock
+      });
 
-            latch[0] = writeCache.store(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
-
-            return entry;//may be absent if page in pinned pages, in such case we use map as virtual lock
-          });
-
-          cacheEntry.clearDirty();
-        }
-        cacheEntry.releaseEntry();
-
-        //We need to release exclusive lock from cache pointer after we put it into the write cache so both "dirty pages" of write
-        //cache and write cache itself will contain actual values simultaneously. But because cache entry can be cleared after we put it back to the
-        //read cache we make copy of cache pointer before head.
-        //
-        //Following situation can happen, if we release exclusive lock before we put entry to the write cache.
-        //1. Page is loaded for write, locked and related LSN is written to the "dirty pages" table.
-        //2. Page lock is released.
-        //3. Page is chosen to be flushed on disk and its entry removed from "dirty pages" table
-        //4. Page is added to write cache as dirty
-        //
-        //So we have situation when page is added as dirty into the write cache but its related entry in "dirty pages" table is removed
-        //it is treated as flushed during fuzzy checkpoint and portion of write ahead log which contains not flushed changes is removed.
-        //This can lead to the data loss after restore and corruption of data structures
-        cachePointer.releaseExclusiveLock();
-
-        if (latch[0] != null) {
-          try {
-            latch[0].await();
-          } catch (InterruptedException e) {
-            Thread.interrupted();
-            throw OException.wrapException(new OInterruptedException("File flush was interrupted"), e);
-          } catch (Exception e) {
-            throw OException.wrapException(new OReadCacheException("File flush was abnormally terminated"), e);
-          }
-        }
-      } finally {
-        fileLock.releaseReadLock();
-      }
-    } finally {
-      cacheLock.releaseReadLock();
+      cacheEntry.clearDirty();
     }
 
+    if (!cacheEntry.isPinned()) {
+      cacheEntry.releaseEntry();
+    }
+
+    //We need to release exclusive lock from cache pointer after we put it into the write cache so both "dirty pages" of write
+    //cache and write cache itself will contain actual values simultaneously. But because cache entry can be cleared after we put it back to the
+    //read cache we make copy of cache pointer before head.
+    //
+    //Following situation can happen, if we release exclusive lock before we put entry to the write cache.
+    //1. Page is loaded for write, locked and related LSN is written to the "dirty pages" table.
+    //2. Page lock is released.
+    //3. Page is chosen to be flushed on disk and its entry removed from "dirty pages" table
+    //4. Page is added to write cache as dirty
+    //
+    //So we have situation when page is added as dirty into the write cache but its related entry in "dirty pages" table is removed
+    //it is treated as flushed during fuzzy checkpoint and portion of write ahead log which contains not flushed changes is removed.
+    //This can lead to the data loss after restore and corruption of data structures
+    cachePointer.releaseExclusiveLock();
+
+    if (latch[0] != null) {
+      try {
+        latch[0].await();
+      } catch (InterruptedException e) {
+        Thread.interrupted();
+        throw OException.wrapException(new OInterruptedException("File flush was interrupted"), e);
+      } catch (Exception e) {
+        throw OException.wrapException(new OReadCacheException("File flush was abnormally terminated"), e);
+      }
+    }
   }
 
   @Override
   public void pinPage(OCacheEntry cacheEntry) {
-    if ((100 * (pinnedPagesSize.get() + cacheEntry.getSize())) / maxSize.get() > percentOfPinnedPages) {
+    if ((100 * (pinnedPagesSize.get() + cacheEntry.getSize())) / wTinyLFU.getMaxSize() > percentOfPinnedPages) {
       if (pinnedPagesWarningCounter.get() < MAX_AMOUNT_OF_WARNINGS_PINNED_PAGES) {
 
         final long warnings = pinnedPagesWarningCounter.getAndIncrement();
@@ -287,51 +310,21 @@ public class WTinyLFUReadCache implements OReadCache {
       return;
     }
 
-    final boolean[] added = new boolean[1];
+    assert !cacheEntry.isReleased();
+
     final PageKey pageKey = new PageKey(cacheEntry.getFileId(), (int) cacheEntry.getPageIndex());
-    cacheLock.acquireReadLock();
-    try {
-      OReadersWriterSpinLock fileLock = getFileLock(cacheEntry.getFileId());
-      fileLock.acquireReadLock();
-      try {
-        data.compute(pageKey, (page, entry) -> {
-          if (entry != null) {
-            final OCacheEntry updated = pinnedPages.putIfAbsent(pageKey, entry);
-            if (updated == null) {
-              maxSize.addAndGet(-entry.getSize());
-              added[0] = true;
-            }
-          }
+    pinnedPages.putIfAbsent(pageKey, cacheEntry);
 
-          return null;
-        });
-      } finally {
-        fileLock.releaseReadLock();
-      }
-    } finally {
-      cacheLock.releaseReadLock();
-    }
-
-    pinnedPagesSize.addAndGet(cacheEntry.getSize());
-    if (added[0]) {
-      afterRemove(cacheEntry);
+    final OCacheEntry removed = data.remove(pageKey);
+    if (removed != null) {
+      afterPining(removed);
     }
   }
 
   @Override
   public OCacheEntry allocateNewPage(long fileId, OWriteCache writeCache, boolean verifyChecksums) throws IOException {
-    OCacheEntry cacheEntry;
-
-    final OReadersWriterSpinLock fileLock = getFileLock(fileId);
-    fileLock.acquireWriteLock();
-    try {
-      final long filledUpTo = writeCache.getFilledUpTo(fileId);
-      assert filledUpTo >= 0;
-
-      cacheEntry = doLoad(fileId, (int) filledUpTo, false, writeCache, true, true);
-    } finally {
-      fileLock.releaseWriteLock();
-    }
+    final int newPageIndex = writeCache.allocateNewPage(fileId);
+    final OCacheEntry cacheEntry = doLoad(fileId, newPageIndex, false, writeCache, true, true);
 
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
@@ -343,12 +336,12 @@ public class WTinyLFUReadCache implements OReadCache {
 
   @Override
   public long getUsedMemory() {
-    return 0;
+    return wTinyLFU.getSize() * 4 * 1024;
   }
 
   @Override
   public void clear() {
-    cacheLock.acquireWriteLock();
+    evictionLock.lock();
     try {
       for (OCacheEntry entry : data.values()) {
         if (entry.isReleased()) {
@@ -363,7 +356,7 @@ public class WTinyLFUReadCache implements OReadCache {
 
       clearPinnedPages();
     } finally {
-      cacheLock.releaseWriteLock();
+      evictionLock.unlock();
     }
   }
 
@@ -385,27 +378,60 @@ public class WTinyLFUReadCache implements OReadCache {
 
   @Override
   public void truncateFile(long fileId, OWriteCache writeCache) throws IOException {
+    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+    writeCache.truncateFile(fileId);
 
+    clearFile(fileId, filledUpTo);
+  }
+
+  private void clearFile(long fileId, int filledUpTo) {
+    evictionLock.lock();
+    try {
+
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   @Override
   public void closeFile(long fileId, boolean flush, OWriteCache writeCache) {
+    evictionLock.lock();
+    try {
 
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   @Override
   public void deleteFile(long fileId, OWriteCache writeCache) throws IOException {
+    evictionLock.lock();
+    try {
+
+    } finally {
+      evictionLock.unlock();
+    }
 
   }
 
   @Override
   public void deleteStorage(OWriteCache writeCache) throws IOException {
+    evictionLock.lock();
+    try {
 
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   @Override
   public void closeStorage(OWriteCache writeCache) throws IOException {
+    evictionLock.lock();
+    try {
 
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   @Override
@@ -418,39 +444,29 @@ public class WTinyLFUReadCache implements OReadCache {
     //TODO: implement at final stage
   }
 
-  private static final class PageKey {
-    private final long fileId;
-    private final int  pageIndex;
-
-    private int hash;
-
-    PageKey(long fileId, int pageIndex) {
-      this.fileId = fileId;
-      this.pageIndex = pageIndex;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o)
-        return true;
-      if (o == null || getClass() != o.getClass())
-        return false;
-      PageKey pageKey = (PageKey) o;
-      return fileId == pageKey.fileId && pageIndex == pageKey.pageIndex;
-    }
-
-    @Override
-    public int hashCode() {
-      if (hash != 0) {
-        return hash;
+  private enum DrainStatus {
+    IDLE {
+      @Override
+      boolean shouldBeDrained(boolean readBufferOverflow) {
+        return readBufferOverflow;
       }
+    }, IN_PROGRESS {
+      @Override
+      boolean shouldBeDrained(boolean readBufferOverflow) {
+        return false;
+      }
+    }, REQUIRED {
+      @Override
+      boolean shouldBeDrained(boolean readBufferOverflow) {
+        return true;
+      }
+    };
 
-      return hash = Objects.hash(fileId, pageIndex);
-    }
+    abstract boolean shouldBeDrained(boolean readBufferOverflow);
+  }
 
-    @Override
-    public String toString() {
-      return "PageKey{" + "fileId=" + fileId + ", pageIndex=" + pageIndex + '}';
-    }
+  private static int ceilingPowerOfTwo(int x) {
+    // From Hacker's Delight, Chapter 3, Harry S. Warren Jr.
+    return 1 << -Integer.numberOfLeadingZeros(x - 1);
   }
 }

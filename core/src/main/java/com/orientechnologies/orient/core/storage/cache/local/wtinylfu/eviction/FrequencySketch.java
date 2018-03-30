@@ -13,7 +13,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @NotThreadSafe
-final class FrequencySketch<E> {
+public final class FrequencySketch<E> implements Admittor<E> {
 
   /*
    * This class maintains a 4-bit CountMinSketch [1] with periodic aging to provide the popularity
@@ -44,17 +44,17 @@ final class FrequencySketch<E> {
    * https://www.usenix.org/legacy/events/sec03/tech/full_papers/crosby/crosby.pdf
    */
 
-  private static final long[] SEED = new long[] { // A mixture of seeds from FNV-1a, CityHash, and Murmur3
-      0xc3a5c85c97cb3127L, 0xb492b66fbe98f273L, 0x9ae16a3b2f90404fL, 0xcbf29ce484222325L};
-  private static final long RESET_MASK = 0x7777777777777777L;
-  private static final long ONE_MASK = 0x1111111111111111L;
+  private static final long[] SEED       = new long[] { // A mixture of seeds from FNV-1a, CityHash, and Murmur3
+      0xc3a5c85c97cb3127L, 0xb492b66fbe98f273L, 0x9ae16a3b2f90404fL, 0xcbf29ce484222325L };
+  private static final long   RESET_MASK = 0x7777777777777777L;
+  private static final long   ONE_MASK   = 0x1111111111111111L;
 
   private final int randomSeed;
 
-  private int sampleSize;
-  private int tableMask;
+  private int    sampleSize;
+  private int    tableMask;
   private long[] table;
-  private int size;
+  private int    size;
 
   /**
    * Creates a lazily initialized frequency sketch, requiring {@link #ensureCapacity} be called
@@ -89,25 +89,15 @@ final class FrequencySketch<E> {
   }
 
   /**
-   * Returns if the sketch has not yet been initialized, requiring that {@link #ensureCapacity} is
-   * called before it begins to track frequencies.
-   */
-  public boolean isNotInitialized() {
-    return (table == null);
-  }
-
-  /**
    * Returns the estimated number of occurrences of an element, up to the maximum (15).
    *
    * @param e the element to count occurrences of
+   *
    * @return the estimated number of occurrences of the element; possibly zero but never negative
    */
   @Nonnegative
+  @Override
   public int frequency(@Nonnull E e) {
-    if (isNotInitialized()) {
-      return 0;
-    }
-
     int hash = spread(e.hashCode());
     int start = (hash & 3) << 2;
     int frequency = Integer.MAX_VALUE;
@@ -126,11 +116,8 @@ final class FrequencySketch<E> {
    *
    * @param e the element to add
    */
+  @Override
   public void increment(@Nonnull E e) {
-    if (isNotInitialized()) {
-      return;
-    }
-
     int hash = spread(e.hashCode());
     int start = (hash & 3) << 2;
 
@@ -155,9 +142,10 @@ final class FrequencySketch<E> {
    *
    * @param i the table index (16 counters)
    * @param j the counter to increment
+   *
    * @return if incremented
    */
-  boolean incrementAt(int i, int j) {
+  private boolean incrementAt(int i, int j) {
     int offset = j << 2;
     long mask = (0xfL << offset);
     if ((table[i] & mask) != mask) {
@@ -167,8 +155,10 @@ final class FrequencySketch<E> {
     return false;
   }
 
-  /** Reduces every counter by half of its original value. */
-  void reset() {
+  /**
+   * Reduces every counter by half of its original value.
+   */
+  private void reset() {
     int count = 0;
     for (int i = 0; i < table.length; i++) {
       count += Long.bitCount(table[i] & ONE_MASK);
@@ -181,10 +171,11 @@ final class FrequencySketch<E> {
    * Returns the table index for the counter at the specified depth.
    *
    * @param item the element's hash
-   * @param i the counter depth
+   * @param i    the counter depth
+   *
    * @return the table index
    */
-  int indexOf(int item, int i) {
+  private int indexOf(int item, int i) {
     long hash = SEED[i] * item;
     hash += hash >> 32;
     return ((int) hash) & tableMask;
@@ -194,13 +185,13 @@ final class FrequencySketch<E> {
    * Applies a supplemental hash function to a given hashCode, which defends against poor quality
    * hash functions.
    */
-  int spread(int x) {
+  private int spread(int x) {
     x = ((x >>> 16) ^ x) * 0x45d9f3b;
     x = ((x >>> 16) ^ x) * randomSeed;
     return (x >>> 16) ^ x;
   }
 
-  static int ceilingNextPowerOfTwo(int x) {
+  private static int ceilingNextPowerOfTwo(int x) {
     // From Hacker's Delight, Chapter 3, Harry S. Warren Jr.
     return 1 << (Integer.SIZE - Integer.numberOfLeadingZeros(x - 1));
   }

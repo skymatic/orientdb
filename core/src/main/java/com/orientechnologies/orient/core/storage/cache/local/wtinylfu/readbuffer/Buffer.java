@@ -30,7 +30,7 @@ import java.util.function.Consumer;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-interface Buffer<E> {
+public interface Buffer<E> {
   int FULL    = 1;
   int SUCCESS = 0;
   int FAILED  = -1;

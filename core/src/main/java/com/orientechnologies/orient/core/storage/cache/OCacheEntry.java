@@ -76,4 +76,8 @@ public interface OCacheEntry {
   boolean isReleased();
 
   boolean acquirePinnedEntry();
+
+  boolean makePinned();
+
+  boolean isPinned();
 }

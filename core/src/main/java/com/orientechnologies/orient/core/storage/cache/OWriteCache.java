@@ -102,6 +102,8 @@ public interface OWriteCache {
 
   long getFilledUpTo(long fileId);
 
+  int allocateNewPage(long fileId);
+
   long getExclusiveWriteCachePagesSize();
 
   void deleteFile(long fileId) throws IOException;

@@ -2,7 +2,7 @@ package com.orientechnologies.orient.core.storage.cache.local.wtinylfu.writequeu
 
 import java.util.concurrent.atomic.AtomicReference;
 
-public class MPSCLinkedQueue<E> {
+public final class MPSCLinkedQueue<E> {
   private final AtomicReference<Node<E>> head = new AtomicReference<>();
   private final AtomicReference<Node<E>> tail = new AtomicReference<>();
 
@@ -24,8 +24,9 @@ public class MPSCLinkedQueue<E> {
     Node<E> next;
 
     if ((next = head.getNext()) != null) {
-      this.head.set(next);
-      return head.getItem();
+      this.head.lazySet(next);
+
+      return next.getItem();
     }
 
     final Node<E> tail = this.tail.get();
@@ -37,8 +38,12 @@ public class MPSCLinkedQueue<E> {
       Thread.yield();
     }
 
-    this.head.set(next);
+    this.head.lazySet(next);
 
-    return head.getItem();
+    return next.getItem();
+  }
+
+  public boolean isEmpty() {
+    return tail.get() == head.get();
   }
 }
