@@ -2,6 +2,7 @@ package com.orientechnologies.orient.core.storage.impl.local.paginated.atomicope
 
 import com.orientechnologies.orient.core.storage.cache.OCacheEntry;
 import com.orientechnologies.orient.core.storage.cache.OCachePointer;
+import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.eviction.LRUList;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OLogSequenceNumber;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWALChanges;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWALPageChangesPortion;
@@ -108,6 +109,86 @@ public class OCacheEntryChanges implements OCacheEntry {
   @Override
   public OWALChanges getChanges() {
     return changes;
+  }
+
+  @Override
+  public int getSize() {
+    return delegate.getSize();
+  }
+
+  @Override
+  public boolean acquireEntry() {
+    return delegate.acquireEntry();
+  }
+
+  @Override
+  public void releaseEntry() {
+    delegate.releaseEntry();
+  }
+
+  @Override
+  public boolean isReleased() {
+    return delegate.isReleased();
+  }
+
+  @Override
+  public boolean makePinned() {
+    return delegate.makePinned();
+  }
+
+  @Override
+  public boolean isPinned() {
+    return delegate.isPinned();
+  }
+
+  @Override
+  public boolean isAlive() {
+    return delegate.isAlive();
+  }
+
+  @Override
+  public boolean freeze() {
+    return delegate.freeze();
+  }
+
+  @Override
+  public void makeDead() {
+    delegate.makeDead();
+  }
+
+  @Override
+  public boolean isDead() {
+    return delegate.isDead();
+  }
+
+  @Override
+  public OCacheEntry getNext() {
+    return delegate.getNext();
+  }
+
+  @Override
+  public OCacheEntry getPrev() {
+    return delegate.getPrev();
+  }
+
+  @Override
+  public void setPrev(OCacheEntry prev) {
+    delegate.setPrev(prev);
+  }
+
+  @Override
+  public void setNext(OCacheEntry next) {
+    delegate.setNext(next);
+  }
+
+  @Override
+  public void setContainer(LRUList lruList) {
+    delegate.setContainer(lruList);
+  }
+
+  @Override
+  public LRUList getContainer() {
+    return delegate.getContainer();
   }
 
   public void setDelegate(OCacheEntry delegate) {

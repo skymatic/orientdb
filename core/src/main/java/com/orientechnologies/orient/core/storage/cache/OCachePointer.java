@@ -75,6 +75,10 @@ public class OCachePointer {
     return pageIndex;
   }
 
+  public int getSize() {
+    return buffer.limit() / (4 * 1024);
+  }
+
   public void incrementReadersReferrer() {
     long readersWriters = readersWritersReferrer.get();
     int readers = getReaders(readersWriters);

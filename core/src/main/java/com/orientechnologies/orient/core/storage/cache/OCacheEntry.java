@@ -68,19 +68,25 @@ public interface OCacheEntry {
 
   OWALChanges getChanges();
 
+  int getSize();
+
   boolean acquireEntry();
 
   void releaseEntry();
 
-  int getSize();
-
   boolean isReleased();
-
-  boolean acquirePinnedEntry();
 
   boolean makePinned();
 
   boolean isPinned();
+
+  boolean isAlive();
+
+  boolean freeze();
+
+  void makeDead();
+
+  boolean isDead();
 
   OCacheEntry getNext();
 
@@ -93,12 +99,4 @@ public interface OCacheEntry {
   void setContainer(LRUList lruList);
 
   LRUList getContainer();
-
-  boolean isAlive();
-
-  boolean freeze();
-
-  void makeDead();
-
-  boolean isDead();
 }
