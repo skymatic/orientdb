@@ -845,8 +845,9 @@ public class ORecordSerializerNetworkV37 implements ORecordSerializer {
     try {
       if (iFields != null && iFields.length > 0)
         deserializePartial((ODocument) iRecord, container, iFields);
-      else
+      else {
         deserialize((ODocument) iRecord, container);
+      }
     } catch (RuntimeException e) {
       OLogManager.instance()
           .warn(this, "Error deserializing record with id %s send this data for debugging: %s ", iRecord.getIdentity().toString(),
@@ -890,7 +891,7 @@ public class ORecordSerializerNetworkV37 implements ORecordSerializer {
   @Override
   public int getMinSupportedVersion() {
     return 0;
-  }  
+  }
 
   @Override
   public boolean getSupportBinaryEvaluate() {
@@ -927,7 +928,7 @@ public class ORecordSerializerNetworkV37 implements ORecordSerializer {
       throw e;
     }
   }
-  
+
   @Override
   public String[] getFieldNamesEmbedded(ODocument reference, byte[] iSource, int offset, int serializerVersion) {
     return getFieldNamesRoot(reference, iSource);
