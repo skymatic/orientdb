@@ -144,7 +144,7 @@ public final class WTinyLFUReadCache implements OReadCache {
                 return null;
               }
 
-              return new OCacheEntryImpl(page.getFileId(), page.getPageIndex(), pointers[1], false);
+              return new OCacheEntryImpl(page.getFileId(), page.getPageIndex(), pointers[0], false);
             } catch (IOException e) {
               throw OException
                   .wrapException(new OStorageException("Error during loading of page " + pageIndex + " for file " + fileId), e);
@@ -250,6 +250,7 @@ public final class WTinyLFUReadCache implements OReadCache {
 
     final OCacheEntry removed = data.remove(pageKey);
     if (removed != null) {
+      assert removed == cacheEntry;
       afterPining(removed);
     }
   }
@@ -421,15 +422,16 @@ public final class WTinyLFUReadCache implements OReadCache {
   public void closeFile(long fileId, boolean flush, OWriteCache writeCache) {
     final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    writeCache.close(fileId, flush);
     clearFile(fileId, filledUpTo);
+    writeCache.close(fileId, flush);
+
   }
 
   @Override
   public void deleteFile(long fileId, OWriteCache writeCache) throws IOException {
     final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
-    clearFile(fileId, filledUpTo);
 
+    clearFile(fileId, filledUpTo);
     writeCache.deleteFile(fileId);
   }
 
@@ -449,11 +451,15 @@ public final class WTinyLFUReadCache implements OReadCache {
 
   @Override
   public void closeStorage(OWriteCache writeCache) throws IOException {
-    final long[] filesToClear = writeCache.close();
+    final Collection<Long> files = writeCache.files().values();
+    final Map<Long, Integer> filledUpTo = new HashMap<>();
+    for (long fileId : files) {
+      filledUpTo.put(fileId, (int) writeCache.getFilledUpTo(fileId));
+    }
 
+    final long[] filesToClear = writeCache.close();
     for (long fileId : filesToClear) {
-      final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
-      clearFile(fileId, filledUpTo);
+      clearFile(fileId, filledUpTo.get(fileId));
     }
   }
 

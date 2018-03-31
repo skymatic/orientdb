@@ -3,24 +3,23 @@ package com.orientechnologies.orient.core.storage.cache;
 import com.orientechnologies.orient.core.storage.cache.local.wtinylfu.eviction.LRUList;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWALChanges;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Created by tglman on 23/06/16.
  */
 public class OCacheEntryImpl implements OCacheEntry {
-  private static final int FREEZED = -1;
-  private static final int DEAD    = -2;
+  private static final int FROZEN = -1;
+  private static final int DEAD   = -2;
 
   private       OCachePointer pointer;
   private final long          fileId;
   private final long          pageIndex;
 
-  private boolean dirty;
-  private final AtomicInteger usagesCount = new AtomicInteger();
-  private final AtomicInteger state       = new AtomicInteger();
-  private volatile boolean pinned;
+  private          boolean       dirty;
+  private final    AtomicInteger usagesCount = new AtomicInteger();
+  private final    AtomicInteger state       = new AtomicInteger();
+  private volatile boolean       pinned;
 
   private OCacheEntry next;
   private OCacheEntry prev;
@@ -194,7 +193,7 @@ public class OCacheEntryImpl implements OCacheEntry {
   public boolean freeze() {
     int state = this.state.get();
     while (state == 0) {
-      if (this.state.compareAndSet(state, FREEZED)) {
+      if (this.state.compareAndSet(state, FROZEN)) {
         return true;
       }
 
@@ -208,7 +207,7 @@ public class OCacheEntryImpl implements OCacheEntry {
   public void makeDead() {
     int state = this.state.get();
 
-    while (state <= 0) {
+    while (state == FROZEN) {
       if (this.state.compareAndSet(state, DEAD)) {
         return;
       }
